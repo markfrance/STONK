@@ -437,6 +437,7 @@ contract Stonk is Context, IERC20 {
     string private _name;
     string private _symbol;
     uint8 private _decimals;
+    address private _owner;
 
     uint twelveHours = 43200;
     uint taxRate = 5; //0.5% per 12 hours
@@ -457,10 +458,16 @@ contract Stonk is Context, IERC20 {
         _symbol = symbol;
         _totalSupply = 2500000 * (10 ^ _decimals);
         _mint(msg.sender, _totalSupply);//Mint totalSupply to owner for testing 
+        _owner = msg.sender;
     }
 
     modifier IsStakeContractSet {
-        require(_spoStakingAddress != address(0));
+        require(_spoStakingAddress != address(0), "Staking contract isn't set.");
+        _;
+    }
+    
+    modifier onlyOwner {
+        require(msg.sender == _owner, "only owner can call this function");
         _;
     }
 
@@ -485,6 +492,9 @@ contract Stonk is Context, IERC20 {
     }
 
 
+     /**
+     * @dev Create an SPO with specified amount
+     */
     function launchSPO(uint256 amount) external {
         performTax();
         
@@ -495,10 +505,16 @@ contract Stonk is Context, IERC20 {
         
     }
     
+     /**
+     * @dev Returns the time stamp when the user was last taxed
+     */
     function getTimeSinceLastTaxed(address player) public view returns(uint256){
         return block.timestamp - lastTaxed[player];
     }
 
+     /**
+     * @dev Returns the amount of Stonk that should be burned for tax
+     */
     function getTaxAmount(address player) public view returns(uint256){
         
         if(player == _spoStakingAddress || getTimeSinceLastTaxed(player) < twelveHours) {
@@ -510,7 +526,10 @@ contract Stonk is Context, IERC20 {
         return balanceOf(player) .mul(taxRate).mul(taxPeriodsElapsed).div(1000);
     }
     
-    function setSPOStakingAddress(address contractAddress) public {
+     /**
+     * @dev Sets address for the staking contract
+     */
+    function setSPOStakingAddress(address contractAddress) public onlyOwner {
         require(contractAddress != address(0), "Staking address can't be 0 address");
         _spoStakingAddress = contractAddress;
     }
@@ -574,7 +593,7 @@ contract Stonk is Context, IERC20 {
         return true;
     }
     
-    function burn(address account, uint256 amount) public IsStakeContractSet returns (bool) {
+    function burn(address account, uint256 amount) external IsStakeContractSet returns (bool) {
         require(msg.sender == _spoStakingAddress, "Only the staking contract can burn tokens");
         
         _burn(account, amount);
