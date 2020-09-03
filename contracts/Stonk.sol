@@ -394,7 +394,7 @@ library Address {
 
 
 interface StonkSPO {
-    function launchSPO(uint256 amount) external;
+    function launchSPO(uint256 amount, address player) external returns(bool);
     
 }
 /**
@@ -456,7 +456,8 @@ contract Stonk is Context, IERC20 {
     constructor (string memory name, string memory symbol)  {
         _name = name;
         _symbol = symbol;
-        _totalSupply = 2500000 * (10 ^ _decimals);
+        _decimals = 18;
+        _totalSupply = 2500000 * (10 ** _decimals);
         _mint(msg.sender, _totalSupply);//Mint totalSupply to owner for testing 
         _owner = msg.sender;
     }
@@ -474,11 +475,11 @@ contract Stonk is Context, IERC20 {
      /**
      * @dev Burns a percentage of the user's tokens based on time since last tax event
      */
-    function performTax() internal {
+    function performTax() internal returns(bool){
         uint256 taxAmount = getTaxAmount(msg.sender);
         
         if(taxAmount == 0){
-            return;
+            return true;
         }
         
         uint256 currentBalance = balanceOf(msg.sender);
@@ -487,8 +488,9 @@ contract Stonk is Context, IERC20 {
             taxAmount = currentBalance;
         }
 
-        _burn(msg.sender, taxAmount);
+       _burn(msg.sender, taxAmount);
         lastTaxed[msg.sender] = block.timestamp;
+        return true;
     }
 
 
@@ -496,12 +498,12 @@ contract Stonk is Context, IERC20 {
      * @dev Create an SPO with specified amount
      */
     function launchSPO(uint256 amount) external {
-        performTax();
+        require(performTax(), "Tax Failed");
         
         require(balanceOf(msg.sender) > amount, "Your post tax balance isn't enough, please stake a lower amount");
         
         require(transfer(_spoStakingAddress, amount), "transfer to stake failed");
-        StonkSPO(_spoStakingAddress).launchSPO(amount);
+        require(StonkSPO(_spoStakingAddress).launchSPO(amount, msg.sender), "Launch Failed");
         
     }
     
@@ -785,7 +787,9 @@ contract Stonk is Context, IERC20 {
      * To learn more about hooks, head to xref:ROOT:extending-contracts.adoc#using-hooks[Using Hooks].
      */
     function _beforeTokenTransfer(address from, address to, uint256 amount) internal virtual { 
-
+        from;
+        amount;
+        
         //Start tax timer if sending first tokens to wallet with no balance
         if(_balances[to] == 0)
         {

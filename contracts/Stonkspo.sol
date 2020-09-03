@@ -15,10 +15,14 @@ interface ERC20 {
  **/
 contract StonkSPO is VRFConsumerBase {
     
-     bool private _sync;
+    bool private _sync;
     
     mapping (address => uint256) public stakedBalances;
+    
     mapping (bytes32 => Negotiation) internal chainlinkRequests;
+    
+    mapping (address => bool) public activeStakers;
+    address[] public stakerAddresses;
     
     address public stonkTokenAddress;
         
@@ -27,6 +31,8 @@ contract StonkSPO is VRFConsumerBase {
     
     uint256 public randomResult;
     
+    
+
     struct Negotiation{
         uint256 amount;
         address player;
@@ -34,6 +40,8 @@ contract StonkSPO is VRFConsumerBase {
     }
 
     event merger(address spoA, address spoB, bool winner, uint256 amount);
+    event spoCreated(address player, uint256 amonut);
+    event withdraw(address player, uint256 amount);
     
 
     //protects against potential reentrancy
@@ -52,19 +60,20 @@ contract StonkSPO is VRFConsumerBase {
      /**
      * Constructor inherits VRFConsumerBase
      * 
-     * Network: Ropsten
-     * Chainlink VRF Coordinator address: 0x2e184F4120eFc6BF4943E3822FA0e5c3829e2fbD
-     * LINK token address:                0x20fE562d797A42Dcb3399062AE9546cd06f63280
-     * Key Hash: 0x757844cd6652a5805e9adb8203134e10a26ef59f62b864ed6a8c054733a1dcb0
+     * Network: Kovan
+     * Chainlink VRF Coordinator address: 0xf490AC64087d59381faF8Bf49Da299C073aAC152
+     * LINK token address:                0xa36085F69e2889c224210F603D836748e7dC0088
+     * Key Hash: 0x6c3699283bda56ad74f6b855546325b68d482e983852a7a82979cc4807b641f4
      */
     constructor() 
         VRFConsumerBase(
-            0x2e184F4120eFc6BF4943E3822FA0e5c3829e2fbD, // VRF Coordinator
-            0x20fE562d797A42Dcb3399062AE9546cd06f63280  // LINK Token
+            0xf490AC64087d59381faF8Bf49Da299C073aAC152, // VRF Coordinator
+            0xa36085F69e2889c224210F603D836748e7dC0088  // LINK Token
         ) public
     {
-        keyHash = 0x757844cd6652a5805e9adb8203134e10a26ef59f62b864ed6a8c054733a1dcb0;
+        keyHash = 0x6c3699283bda56ad74f6b855546325b68d482e983852a7a82979cc4807b641f4;
         fee = 0.1 * 10 ** 18; // 0.1 LINK
+        stonkTokenAddress = 0xd40f7bfd97CDF46C1ABdC1146dbFc46eae2091b7;
     }
     
     /** 
@@ -87,9 +96,13 @@ contract StonkSPO is VRFConsumerBase {
         
         if(randomness > 5){ //player wins
             ERC20(stonkTokenAddress).transfer(thisNegotiation.player, thisNegotiation.amount);
+            stakedBalances[thisNegotiation.other] = 0;
+            activeStakers[thisNegotiation.other] = false;
             winner = true;
         } else { //other spo wins
             ERC20(stonkTokenAddress).transfer(thisNegotiation.other, thisNegotiation.amount);
+            stakedBalances[thisNegotiation.player] = 0;
+            activeStakers[thisNegotiation.player] = false;
             winner = false;
         }
         
@@ -97,11 +110,16 @@ contract StonkSPO is VRFConsumerBase {
     }
     
     
-    function launchSPO(uint256 amount) external onlyStonk{
-        require(amount > 0, "Stake amount must be positive value");
-        require(stakedBalances[msg.sender] == 0, "Please withdraw your current stake before restaking");
+    function launchSPO(uint256 amount, address player) external onlyStonk returns(bool){
+        require(amount > 1 * (10 * 10), "Stake amount is too low");
+        require(stakedBalances[player] == 0, "Please withdraw your current stake before restaking");
         
-        stakedBalances[msg.sender] = amount;
+        stakedBalances[player] = amount;
+        stakerAddresses.push(player);
+        activeStakers[player] = true;
+        
+        emit spoCreated(player, amount);
+        return true;
     }
     
     
@@ -117,25 +135,30 @@ contract StonkSPO is VRFConsumerBase {
     }
     
     function enterNegotiation(address spo, uint256 randomSeed)  external synchronized {
+        require(spo != msg.sender, "Can't negotiate with yourself");
+        require(stakedBalances[spo] != 0 && stakedBalances[msg.sender] != 0, "Invalid SPO address");
         uint256 negotiationAmount = getNegotiationAmount(spo);
         
         bytes32 requestId  =  getRandomNumber(randomSeed);
-        
-        
         uint256 taxAmount = negotiationAmount / 10; //10% to be burned
-        
         require(ERC20(stonkTokenAddress).burn(address(this), taxAmount), "Burn failed");//burn  10%
         
         uint256 amountWon = negotiationAmount - taxAmount;
-        
         chainlinkRequests[requestId] = Negotiation(amountWon, msg.sender, spo);
-        
     }
     
-        
+    function getStakerAddresses() external view returns(address[] memory){
+        return stakerAddresses;
+    }
+    
     function withdrawStake() external synchronized {
-        ERC20(stonkTokenAddress).transfer(msg.sender, stakedBalances[msg.sender]);
+        uint256 withdrawAmount = stakedBalances[msg.sender];
+        require(withdrawAmount != 0, "No tokens currently staked");
+        ERC20(stonkTokenAddress).transfer(msg.sender, withdrawAmount);
         stakedBalances[msg.sender] = 0;
+        activeStakers[msg.sender] = false;
+        
+        emit withdraw(msg.sender, withdrawAmount);
     }
     
 }
